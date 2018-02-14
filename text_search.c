@@ -11,6 +11,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <ctype.h>
 
 /** The maximum length of the search term. */
 #define MAX_NUM_INPUT_CHARS 100u
@@ -120,12 +121,21 @@ int main(void)
         /* Remove newline character. */
         input[strcspn(input, "\n")] = 0;
 
-
         /* Make sure the user input a string. */
         if(strlen(input) > 0u)
         {
-            /* Process command if the input isn't "quit". */
-            if(strcmp(input, "quit") != 0u)
+            int num_alpha_chars = 0;
+            /* Search for the text if the input is alphabetic. */
+            for(num_alpha_chars = 0; num_alpha_chars < strlen(input); ++num_alpha_chars)
+            {
+                if(isalpha(input[num_alpha_chars]) == 0)
+                {
+                    break; /* Break if one of the characters in non alphabetic. */
+                }
+            }
+
+            /* Search for the input if the input consists entirely of alphabetic characters. */
+            if(num_alpha_chars == strlen(input))
             {
                 /* Holds ID of the parent process. */
                 pid_t pid;
