@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <ctype.h>
+#include <signal.h>
 
 /** The maximum length of the search term. */
 #define MAX_NUM_INPUT_CHARS 100u
@@ -23,6 +24,25 @@
 #define WRITE 1
 /** The maximum number of input files allowed. */
 #define MAX_NUM_INPUT_FILES 10
+
+/**
+    Signal handler. The child processes are terminated within this
+    upon receiving a SIGUSR1 signal.
+
+    @param sig_num
+        The signal to handle.
+*/
+void Sig_Handler(int sig_num)
+{
+    switch(sig_num)
+    {
+        case SIGUSR1:
+            /* Print out the process ids of the parent and child. */
+            printf("The parent of child %d is %d\n", getpid(), getppid());
+            exit(EXIT_SUCCESS);
+            break;
+    }
+}
 
 /**
     Gathers file_paths from a text file.
@@ -193,6 +213,14 @@ int main(int argc, char * argv[])
         else if(pid == 0)
         {
             /* Child process execution. */
+
+            /* Setup the SIGUSR1 signal for the parent process to use to kill the children. */
+            if(signal(SIGUSR1, Sig_Handler) == SIG_ERR)
+            {
+                perror("Signal setup error.");
+                exit(EXIT_FAILURE);
+            }
+
             /* Close unused ends of the pipes by the children. */
             close(downstream_pipes[i][WRITE]);
             close(upstream_pipes[i][READ]);
@@ -220,10 +248,6 @@ int main(int argc, char * argv[])
                 sprintf(val, "%d", SearchFile(file_path, search_text));
                 write(upstream_pipes[i][WRITE], val, strlen(val) + 1); /* Send the value to the parent. */
             }
-
-            /* Print out the process ids of the parent and child to the log. */
-            printf("The parent of child %d is %d\n", getpid(), getppid());
-            exit(EXIT_SUCCESS);
         }
         else
         {
@@ -239,7 +263,6 @@ int main(int argc, char * argv[])
             }
         }
     }
-
 
     /* Start the program if the number of files is greater than zero. */
     while(num_files > 0)
@@ -286,7 +309,12 @@ int main(int argc, char * argv[])
             }
             else
             {
-                break;
+                for(int i = 0; i < num_files; ++i)
+                {
+                    /* Send the SIGUSR1 signal to all of the child processes. */
+                    kill(child_pids[0], SIGUSR1);
+                }
+                num_files = 0; /* Break out of the while loop. */
             }
         }
     }
