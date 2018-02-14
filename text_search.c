@@ -21,7 +21,52 @@
 #define READ 0
 /** The pipe index for the write file descriptor. */
 #define WRITE 1
+/** The maximum number of input files allowed. */
+#define MAX_NUM_INPUT_FILES 10
 
+/**
+    Gathers file_paths from a text file.
+
+    @param file_path
+        The path to the file to search.
+    @param files
+        The file paths that were gathered.
+    @param num_files
+        Pointer to the integer variable that contains how many files there are to process.
+*/
+void GetFilePathsFromTextFile(char * file_path, char files[MAX_NUM_INPUT_FILES][MAX_NUM_LINE_CHARS], int * num_files)
+{
+    FILE *fp;
+
+    if((fp = fopen(file_path, "r")) == NULL)
+    {
+        perror("Opening initial text file");
+        exit(EXIT_FAILURE);
+    }
+
+    /* Read in lines from the file until the end of file is reached. */
+    for(int i = 0; i < (MAX_NUM_INPUT_FILES - 1); ++i)
+    {
+        if(fgets(files[i], MAX_NUM_LINE_CHARS, fp) != NULL)
+        {
+            /* Remove newline character. */
+            files[i][strcspn(files[i], "\n")] = 0;
+            printf("File%d: %s\n", i, files[i]);
+            *num_files += 1;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    /* Close the file. */
+    if(fclose(fp) != 0)
+    {
+        perror("File close");
+        exit(EXIT_FAILURE);
+    }
+}
 /**
     Searches a file for instances of text.
 
@@ -96,14 +141,22 @@ int main(int argc, char * argv[])
     /* The number of files to search. */
     int num_files = 0;
 
+    char files[MAX_NUM_INPUT_FILES][MAX_NUM_LINE_CHARS] = {0};
+    pid_t * child_pids = (pid_t *)malloc(num_files * sizeof(pid_t));
+
     if(argc > 1)
     {
         num_files = argc - 1;
     }
-
-    char ** books = (char **)malloc(num_files * sizeof(char *));
-    //char * books[2] = {"./books/The_Joy_Of_Life.txt", "./books/The_Sugar_Creek_Gang_Digs_For_Treasure.txt"};
-    pid_t * child_pids = (pid_t *)malloc(num_files * sizeof(pid_t));
+    else
+    {
+        char text_file_path[MAX_NUM_INPUT_CHARS]; /* The text file path. */
+        printf("Please enter the text file that contains the paths to the files to search: ");
+        fgets(text_file_path, MAX_NUM_INPUT_CHARS, stdin);
+        /* Remove newline character. */
+        text_file_path[strcspn(text_file_path, "\n")] = 0;
+        GetFilePathsFromTextFile(text_file_path, files, &num_files);
+    }
 
     /* Create the pipes. */
     for(int i = 0; i < num_files; ++i)
@@ -119,7 +172,10 @@ int main(int argc, char * argv[])
             exit(EXIT_FAILURE);
         }
 
-        books[i] = argv[i + 1];
+        if(argc > 1)
+        {
+            strcpy(files[i], argv[i + 1]);
+        }
     }
 
     /* Start the program if the number of files is greater than zero. */
@@ -199,7 +255,7 @@ int main(int argc, char * argv[])
                         /* Store the child PID that is associated with the current book. */
                         child_pids[i] = pid;
                         /* Send the file path to the children via pipe. Include the NULL character. */
-                        if(write(downstream_pipes[i][WRITE], books[i], strlen(books[i]) + 1) == -1)
+                        if(write(downstream_pipes[i][WRITE], files[i], strlen(files[i]) + 1) == -1)
                         {
                             perror("Write failure.");
                             exit(EXIT_FAILURE);
@@ -223,7 +279,7 @@ int main(int argc, char * argv[])
                         {
                             /* Get the number of search text instances found. */
                             read(upstream_pipes[i][READ], val, 100);
-                            printf("Book: %s\n\t%s: %s\n", books[i], input, val);
+                            printf("File: %s\n\t%s: %s\n", files[i], input, val);
                         }
                     }
                 }
@@ -235,7 +291,6 @@ int main(int argc, char * argv[])
         }
     }
 
-    free(books);
     free(child_pids);
 
     return 0;
