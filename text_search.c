@@ -85,7 +85,7 @@ int SearchFile(char * file_path, char * text)
     return num_text_instances;
 }
 
-int main(void)
+int main(int argc, char * argv[])
 {
     /* Holds user input. */
     char input[MAX_NUM_INPUT_CHARS] = {0};
@@ -94,7 +94,16 @@ int main(void)
     /* The pipe from child to parent. */
     int upstream_pipes[2][2];
     /* The number of files to search. */
-    int num_files = 2;
+    int num_files = 0;
+
+    if(argc > 1)
+    {
+        num_files = argc - 1;
+    }
+
+    char ** books = (char **)malloc(num_files * sizeof(char *));
+    //char * books[2] = {"./books/The_Joy_Of_Life.txt", "./books/The_Sugar_Creek_Gang_Digs_For_Treasure.txt"};
+    pid_t * child_pids = (pid_t *)malloc(num_files * sizeof(pid_t));
 
     /* Create the pipes. */
     for(int i = 0; i < num_files; ++i)
@@ -109,10 +118,12 @@ int main(void)
             perror("Upstream pipe init failure.");
             exit(EXIT_FAILURE);
         }
+
+        books[i] = argv[i + 1];
     }
 
-    /* Process the input if the command isn't "quit". */
-    while(1u)
+    /* Start the program if the number of files is greater than zero. */
+    while(num_files > 0)
     {
         /* Prompt user for the text to search for. */
         printf("Enter Command: ");
@@ -142,8 +153,6 @@ int main(void)
                 pid_t wpid; /* The returned pid from the wait command. */
                 int status;
 
-                char * books[2] = {"./books/The_Joy_Of_Life.txt", "./books/The_Sugar_Creek_Gang_Digs_For_Treasure.txt"};
-                pid_t child_pids[2] = {0};
                 for(int i = 0; i < num_files; ++i)
                 {
 
@@ -225,6 +234,9 @@ int main(void)
             }
         }
     }
+
+    free(books);
+    free(child_pids);
 
     return 0;
 }
