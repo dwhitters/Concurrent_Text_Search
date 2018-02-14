@@ -106,7 +106,8 @@ int SearchFile(char * file_path, char * text)
 
     if((fp = fopen(file_path, "r")) == NULL)
     {
-        perror("File open");
+        printf("Error opening: %s\n", file_path);
+        perror("Opening file");
         exit(EXIT_FAILURE);
     }
 
@@ -154,10 +155,6 @@ int main(int argc, char * argv[])
 {
     /* Holds user input. */
     char input[MAX_NUM_INPUT_CHARS] = {0};
-    /* The pipe from parent to child. */
-    int downstream_pipes[2][2];
-    /* The pipe from child to parent. */
-    int upstream_pipes[2][2];
     /* The number of files to search. */
     int num_files = 0;
     /* Holds ID of the parent process. */
@@ -165,11 +162,16 @@ int main(int argc, char * argv[])
     /* Contains all files paths to be searched. */
     char files[MAX_NUM_INPUT_FILES][MAX_NUM_LINE_CHARS] = {0};
     /* Contains all child PIDs. */
-    pid_t * child_pids = (pid_t *)malloc(num_files * sizeof(pid_t));
+    pid_t child_pids[MAX_NUM_INPUT_FILES] = {0};
 
     if(argc > 1)
     {
-        num_files = argc - 1;
+        /* Only set the number of files if it's within limits. */
+        num_files = ((argc -1) > MAX_NUM_INPUT_FILES) ? 0 : (argc - 1);
+        if(num_files == 0)
+        {
+            printf("Too many files!\n");
+        }
     }
     else
     {
@@ -180,6 +182,11 @@ int main(int argc, char * argv[])
         text_file_path[strcspn(text_file_path, "\n")] = 0;
         GetFilePathsFromTextFile(text_file_path, files, &num_files);
     }
+
+    /* The pipe from parent to child. */
+    int downstream_pipes[MAX_NUM_INPUT_FILES][2] = {0};
+    /* The pipe from child to parent. */
+    int upstream_pipes[MAX_NUM_INPUT_FILES][2] = {0};
 
     /* Create the pipes. */
     for(int i = 0; i < num_files; ++i)
@@ -198,6 +205,7 @@ int main(int argc, char * argv[])
         if(argc > 1)
         {
             strcpy(files[i], argv[i + 1]);
+            printf("File%d: %s\n", i, files[i]);
         }
     }
 
@@ -312,7 +320,7 @@ int main(int argc, char * argv[])
                 for(int i = 0; i < num_files; ++i)
                 {
                     /* Send the SIGUSR1 signal to all of the child processes. */
-                    kill(child_pids[0], SIGUSR1);
+                    kill(child_pids[i], SIGUSR1);
                 }
                 num_files = 0; /* Break out of the while loop. */
             }
@@ -322,8 +330,6 @@ int main(int argc, char * argv[])
     pid_t wpid; /* The returned pid from the wait command. */
     int status;
     while((wpid = wait(&status)) > 0); /* Wait for all child processes to exit. */
-
-    free(child_pids);
 
     return 0;
 }
