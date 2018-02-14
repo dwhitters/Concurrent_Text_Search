@@ -140,8 +140,11 @@ int main(int argc, char * argv[])
     int upstream_pipes[2][2];
     /* The number of files to search. */
     int num_files = 0;
-
+    /* Holds ID of the parent process. */
+    pid_t pid;
+    /* Contains all files paths to be searched. */
     char files[MAX_NUM_INPUT_FILES][MAX_NUM_LINE_CHARS] = {0};
+    /* Contains all child PIDs. */
     pid_t * child_pids = (pid_t *)malloc(num_files * sizeof(pid_t));
 
     if(argc > 1)
@@ -178,6 +181,66 @@ int main(int argc, char * argv[])
         }
     }
 
+    /* Setup the child processes. */
+    for(int i = 0; i < num_files; ++i)
+    {
+        /* Fork. Exit on failure. */
+        if((pid = fork()) < 0)
+        {
+            perror("FORK FAILURE");
+            exit(EXIT_FAILURE);
+        }
+        else if(pid == 0)
+        {
+            /* Child process execution. */
+            /* Close unused ends of the pipes by the children. */
+            close(downstream_pipes[i][WRITE]);
+            close(upstream_pipes[i][READ]);
+
+            /* Will contain the search text received from the pipe. */
+            char file_path[MAX_NUM_INPUT_CHARS];
+            char search_text[MAX_NUM_INPUT_CHARS];
+
+            if(read(downstream_pipes[i][READ], file_path, MAX_NUM_INPUT_CHARS) == -1)
+            {
+                perror("Read failure.");
+                exit(EXIT_FAILURE);
+            }
+
+            while(1)
+            {
+                if(read(downstream_pipes[i][READ], search_text, MAX_NUM_INPUT_CHARS) == -1)
+                {
+                    perror("Read failure.");
+                    exit(EXIT_FAILURE);
+                }
+
+                /* Convert the search num value to a string to send it to the parent over the pipe. */
+                char val[100] = {0};
+                sprintf(val, "%d", SearchFile(file_path, search_text));
+                write(upstream_pipes[i][WRITE], val, strlen(val) + 1); /* Send the value to the parent. */
+            }
+
+            /* Print out the process ids of the parent and child to the log. */
+            printf("The parent of child %d is %d\n", getpid(), getppid());
+            exit(EXIT_SUCCESS);
+        }
+        else
+        {
+            /* Parent process execution. */
+            printf("The parent PID is %d\n", getpid());
+            /* Store the child PID that is associated with the current book. */
+            child_pids[i] = pid;
+            /* Send the file path to the children via pipe. Include the NULL character. */
+            if(write(downstream_pipes[i][WRITE], files[i], strlen(files[i]) + 1) == -1)
+            {
+                perror("Write failure.");
+                exit(EXIT_FAILURE);
+            }
+        }
+    }
+
+
     /* Start the program if the number of files is greater than zero. */
     while(num_files > 0)
     {
@@ -204,84 +267,21 @@ int main(int argc, char * argv[])
             /* Search for the input if the input consists entirely of alphabetic characters. */
             if(num_alpha_chars == strlen(input))
             {
-                /* Holds ID of the parent process. */
-                pid_t pid;
-                pid_t wpid; /* The returned pid from the wait command. */
-                int status;
-
                 for(int i = 0; i < num_files; ++i)
                 {
-
-                    /* Fork. Exit on failure. */
-                    if((pid = fork()) < 0)
+                    /* Send the text to search to the children via pipe. Include the NULL character. */
+                    if(write(downstream_pipes[i][WRITE], input, strlen(input) + 1) == -1)
                     {
-                        perror("FORK FAILURE");
+                        perror("Write failure.");
                         exit(EXIT_FAILURE);
                     }
-                    else if(pid == 0)
-                    {
-                        /* Child process execution. */
-                        /* Close unused ends of the pipes by the children. */
-                        close(downstream_pipes[i][WRITE]);
-                        close(upstream_pipes[i][READ]);
-
-                        /* Will contain the search text received from the pipe. */
-                        char file_path[MAX_NUM_INPUT_CHARS];
-                        char search_text[MAX_NUM_INPUT_CHARS];
-                        if(read(downstream_pipes[i][READ], file_path, MAX_NUM_INPUT_CHARS) == -1)
-                        {
-                            perror("Read failure.");
-                            exit(EXIT_FAILURE);
-                        }
-                        printf("File path: %s\n", file_path);
-                        if(read(downstream_pipes[i][READ], search_text, MAX_NUM_INPUT_CHARS) == -1)
-                        {
-                            perror("Read failure.");
-                            exit(EXIT_FAILURE);
-                        }
-
-                        /* Convert the search num value to a string to send it to the parent over the pipe. */
-                        char val[100] = {0};
-                        sprintf(val, "%d", SearchFile(file_path, search_text));
-                        write(upstream_pipes[i][WRITE], val, strlen(val) + 1); /* Send the value to the parent. */
-                        /* Print out the process ids of the parent and child to the log. */
-                        printf("The parent of child %d is %d\n", getpid(), getppid());
-                        exit(EXIT_SUCCESS);
-                    }
-                    else
-                    {
-                        /* Parent process execution. */
-                        printf("The parent PID is %d\n", getpid());
-                        /* Store the child PID that is associated with the current book. */
-                        child_pids[i] = pid;
-                        /* Send the file path to the children via pipe. Include the NULL character. */
-                        if(write(downstream_pipes[i][WRITE], files[i], strlen(files[i]) + 1) == -1)
-                        {
-                            perror("Write failure.");
-                            exit(EXIT_FAILURE);
-                        }
-                        sleep(1); /* Make sure the pipe is open before writing to it again. */
-                        /* Send the text to search to the children via pipe. Include the NULL character. */
-                        if(write(downstream_pipes[i][WRITE], input, strlen(input) + 1) == -1)
-                        {
-                            perror("Write failure.");
-                            exit(EXIT_FAILURE);
-                        }
-                    }
                 }
-
                 char val[100] = {0}; /* Contains the stringified number of search text instances found. */
-                while((wpid = wait(&status)) > 0) /* Wait for all child processes to exit. */
+                for(int i = 0; i < num_files; ++i)
                 {
-                    for(int i = 0; i < num_files; ++i)
-                    {
-                        if(child_pids[i] == wpid)
-                        {
-                            /* Get the number of search text instances found. */
-                            read(upstream_pipes[i][READ], val, 100);
-                            printf("File: %s\n\t%s: %s\n", files[i], input, val);
-                        }
-                    }
+                    /* Get the number of search text instances found. */
+                    read(upstream_pipes[i][READ], val, 100);
+                    printf("File: %s\n\t%s: %s\n", files[i], input, val);
                 }
             }
             else
@@ -290,6 +290,10 @@ int main(int argc, char * argv[])
             }
         }
     }
+
+    pid_t wpid; /* The returned pid from the wait command. */
+    int status;
+    while((wpid = wait(&status)) > 0); /* Wait for all child processes to exit. */
 
     free(child_pids);
 
