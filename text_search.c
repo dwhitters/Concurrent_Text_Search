@@ -13,6 +13,9 @@
 #include <sys/wait.h>
 #include <ctype.h>
 #include <signal.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 /** The maximum length of the search term. */
 #define MAX_NUM_INPUT_CHARS 100u
@@ -25,6 +28,9 @@
 /** The maximum number of input files allowed. */
 #define MAX_NUM_INPUT_FILES 10
 
+/** The file descriptor to the diagnostic output of the program. Used by all processes. */
+int Diag_Fd;
+
 /**
     Signal handler. The child processes are terminated within this
     upon receiving a SIGUSR1 signal.
@@ -34,11 +40,14 @@
 */
 void Sig_Handler(int sig_num)
 {
+    char str[MAX_NUM_LINE_CHARS] = {0};
+
     switch(sig_num)
     {
         case SIGUSR1:
-            /* Print out the process ids of the parent and child. */
-            printf("The parent of child %d is %d\n", getpid(), getppid());
+            /* Print out the process ids of the parent and child to the diagnostic output. */
+            sprintf(str, "The parent of child %d is %d\n", getpid(), getppid());
+            write(Diag_Fd, str, strlen(str) + 1);
             exit(EXIT_SUCCESS);
             break;
     }
@@ -111,6 +120,10 @@ int SearchFile(char * file_path, char * text)
         exit(EXIT_FAILURE);
     }
 
+    char diag_str[MAX_NUM_LINE_CHARS] = {0};
+    sprintf(diag_str, "Searching %s for %s...\n", file_path, text);
+    write(Diag_Fd, diag_str, strlen(diag_str) + 1);
+
     /* Read in lines from the file until the end of file is reached. */
     while(fgets(file_line, MAX_NUM_LINE_CHARS, fp) != NULL)
     {
@@ -164,6 +177,9 @@ int main(int argc, char * argv[])
     /* Contains all child PIDs. */
     pid_t child_pids[MAX_NUM_INPUT_FILES] = {0};
 
+    /* Open file to contain diagnostic output. */
+    Diag_Fd = open("d.log", O_CREAT | O_WRONLY); /* All processes use this file descriptor. */
+
     if(argc > 1)
     {
         /* Only set the number of files if it's within limits. */
@@ -209,6 +225,10 @@ int main(int argc, char * argv[])
         }
     }
 
+    char str[MAX_NUM_INPUT_CHARS] = {0};
+    sprintf(str, "The parent PID is %d\n", getpid());
+    write(Diag_Fd, str, strlen(str) + 1); /* Write the string to the diagnostic output. */
+
     /* Setup the child processes. */
     for(int i = 0; i < num_files; ++i)
     {
@@ -221,6 +241,9 @@ int main(int argc, char * argv[])
         else if(pid == 0)
         {
             /* Child process execution. */
+            char diag_str[MAX_NUM_LINE_CHARS] = {0};
+            sprintf(diag_str, "Spawning child process: %d\n", getpid());
+            write(Diag_Fd, diag_str, strlen(diag_str) + 1);
 
             /* Setup the SIGUSR1 signal for the parent process to use to kill the children. */
             if(signal(SIGUSR1, Sig_Handler) == SIG_ERR)
@@ -254,13 +277,17 @@ int main(int argc, char * argv[])
                 /* Convert the search num value to a string to send it to the parent over the pipe. */
                 char val[100] = {0};
                 sprintf(val, "%d", SearchFile(file_path, search_text));
+
+                sprintf(diag_str, "Child %d is sending result.\n", getpid());
+                write(Diag_Fd, diag_str, strlen(diag_str) + 1); /* Write the string to the diagnostic output. */
+
                 write(upstream_pipes[i][WRITE], val, strlen(val) + 1); /* Send the value to the parent. */
             }
         }
         else
         {
             /* Parent process execution. */
-            printf("The parent PID is %d\n", getpid());
+
             /* Store the child PID that is associated with the current book. */
             child_pids[i] = pid;
             /* Send the file path to the children via pipe. Include the NULL character. */
@@ -337,6 +364,9 @@ int main(int argc, char * argv[])
     pid_t wpid; /* The returned pid from the wait command. */
     int status;
     while((wpid = wait(&status)) > 0); /* Wait for all child processes to exit. */
+
+    /* Close the diagnostic file descriptor. */
+    close(Diag_Fd);
 
     return 0;
 }
