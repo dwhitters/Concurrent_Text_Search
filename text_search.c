@@ -272,11 +272,18 @@ int main(int argc, char * argv[])
         }
     }
 
-    /* Start the program if the number of files is greater than zero. */
+    /* Close the pipe ends that the parent process doesn't use. */
+    for(int i = 0; i < num_files; ++i)
+    {
+        close(downstream_pipes[i][READ]);
+        close(upstream_pipes[i][WRITE]);
+    }
+
+    /* Start searching files if the number of files is greater than zero. */
     while(num_files > 0)
     {
         /* Prompt user for the text to search for. */
-        printf("Enter Command: ");
+        printf("> ");
         /* Read the user input. */
         fgets(input, MAX_NUM_INPUT_CHARS, stdin);
         /* Remove newline character. */
